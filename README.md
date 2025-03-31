@@ -1,4 +1,4 @@
-# This is a repository to find maximal classes from a directed graph
+# Find maximal classes from a directed graph
 
 ## Instructions to run the codes
 1. Open a terminal and type this:
