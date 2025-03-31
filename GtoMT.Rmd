@@ -9,9 +9,6 @@ n <- 6
 # An example directed graph
 g <- make_graph(edges = c(2, 1, 3, 1, 6, 4, 4, 5, 5, 6), n = n, directed = TRUE) # Changable coefficients
 plot(g, main = "Original graph")
-
-lbs <- rep(0L,n) # Labels for the nodes, global variable
-maxc <- matrix(0,n,n) # Maximal classes, global variable
 ```
 
 ## Construction of the condensed graph
@@ -69,10 +66,54 @@ KosarajuSCC <- function(g){
   }
   List.out
 }
-
-KosarajuSCC(g)
 ```
 
+```{r}
+library(igraph)
+
+# Function to construct the condensed graph, including isolated SCCs
+CondensedGraph <- function(g, scc_list) {
+  # Number of SCCs
+  num_sccs <- length(scc_list)
+
+  # Map nodes to their SCC
+  node_to_scc <- rep(0, vcount(g))
+  for (i in seq_along(scc_list)) {
+    node_to_scc[scc_list[[i]]] <- i
+  }
+
+  # Create a new edge list
+  edge_list <- matrix(ncol = 2, nrow = 0)  # Initialize an empty edge matrix
+  for (v in V(g)) {
+    for (neighbor in neighbors(g, v, mode = "out")) {
+      scc_v <- node_to_scc[v]
+      scc_neighbor <- node_to_scc[neighbor]
+      if (scc_v != scc_neighbor) {  # Avoid self-loops
+        edge_list <- rbind(edge_list, c(scc_v, scc_neighbor))
+      }
+    }
+  }
+
+  # Ensure all SCCs (even isolated ones) are included
+  condensed_g <- make_empty_graph(n = num_sccs, directed = TRUE)  # Create empty graph with all SCCs
+  V(condensed_g)$name <- as.character(seq_len(num_sccs))  # Correctly assign SCC labels
+
+  # Add edges if any exist
+  if (nrow(edge_list) > 0) {
+    condensed_g <- add_edges(condensed_g, t(edge_list))
+  }
+
+  return(condensed_g)
+}
+
+# Example usage
+sccs <- KosarajuSCC(g)  # Compute SCCs
+condensed_graph <- CondensedGraph(g, sccs)  # Construct the condensed graph
+
+# Plot the condensed graph
+plot(condensed_graph, main = "Condensed graph", vertex.label = V(condensed_graph)$name)
+
+```
 
 ## Search for maximal classes of the condensed graph
 
@@ -111,10 +152,40 @@ get_maximal_class <- function(g) {
   }
   
   print(paste("Number of maximal classes: ", num))
-  print(maxc)
 }
 ```
 
+## Get the list of maximal classes of the original graph
+
 ```{r}
-get_maximal_class(g)
+make_list_maxc <- function(sccs,maxc,n) {
+  list_maxc <- list()
+
+  for (i in 1:n) {
+    tmp_maxc <- c()
+    for (j in 1:n) {
+      if (maxc[i,j] != 0) {
+        tmp_maxc <- c(tmp_maxc,sccs[[maxc[i,j]]])
+      }
+    }
+    if (!is.null(tmp_maxc)) {
+      list_maxc <- append(list_maxc,list(tmp_maxc))
+    }
+  }
+  return(list_maxc)
+}
+```
+
+
+
+```{r}
+n <- vcount(condensed_graph)
+lbs <- rep(0L,n) # Labels for the nodes, global variable
+maxc <- matrix(0,n,n) # Maximal classes, global variable
+
+get_maximal_class(condensed_graph)
+
+list_maxc <- make_list_maxc(sccs,maxc,n)
+
+print(list_maxc)
 ```
