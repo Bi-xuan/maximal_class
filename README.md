@@ -3,7 +3,7 @@
 ## Instructions to run the codes
 1. Open a terminal and type this:
 ```
-git clone git@github.com:Bi-xuan/Bixuan-LIU---Master-Thesis.git
+git clone git@github.com:Bi-xuan/maximal_class.git
 ```
 A folder named Bixuan-LIU---Master-Thesis will appear in the directory.
 
