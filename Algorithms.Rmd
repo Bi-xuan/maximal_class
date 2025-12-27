@@ -2,6 +2,8 @@
 library("igraph")
 ```
 
+# Algorithm 1: graph -> maximal classes
+
 ## Initialization
 
 ```{r}
@@ -15,6 +17,8 @@ plot(g, main = "Original graph")
 
 ```{r}
 KosarajuSCC <- function(g){  
+  if (vcount(g) == 0) return(list())
+  
   #Comparing d with S.node, get the overlapping ones and remove the NA
   getnotNA <- function(d,S.node){
     k <- length(which(d>0))   
@@ -34,12 +38,14 @@ KosarajuSCC <- function(g){
   #Mt <- t(M)
   gt <- t(g.adjacency) %>%
     graph.adjacency
-  Source.node <- S.node[round(runif(1)*n)]
+  # Source.node <- S.node[round(runif(1)*n)]
+  Source.node <- sample(S.node, 1)
+
   Count <- 0
 ##------------------generate a stack of nodes in graph---------##
 ##------------------give the topology rank of each nodes-------##
   while (any(S.node != 0)){
-    d <- graph.dfs(g,root=Source.node,neimode="out",unreachable=FALSE)
+    d <- graph.dfs(g,root=Source.node,mode="out",unreachable=FALSE)
     d.useful <- getnotNA(d$order,S.node)
     k <- length(d.useful)
     for(i in 1:k){
@@ -55,7 +61,7 @@ KosarajuSCC <- function(g){
   Count <- 0
   while (any(List.node !=0)){
     Source.node <- List.node[which(List.node!=0)[1]]
-    d <- graph.dfs(gt,root=Source.node,neimode="out",unreachable=FALSE)
+    d <- graph.dfs(gt,root=Source.node,mode="out",unreachable=FALSE)
     d.useful <- getnotNA(d$order,List.node)
     if(length(d)==0)
       break
@@ -151,7 +157,7 @@ get_maximal_class <- function(g) {
     }
   }
   
-  print(paste("Number of maximal classes: ", num))
+  # print(paste("Number of maximal classes: ", num))
 }
 ```
 
@@ -189,3 +195,129 @@ list_maxc <- make_list_maxc(sccs,maxc,n)
 
 print(list_maxc)
 ```
+
+# Algorithm 2: maximal classes -> graphs
+
+```{r}
+reconstruct_graphs <- function(list_maxc) {
+  # 1. Initialization: Define the set of all nodes V
+  V_all <- sort(unique(unlist(list_maxc)))
+  n_total <- length(V_all)
+  m <- length(list_maxc)
+  
+  # 2. Identify Candidate Source Nodes
+  S_candidates <- lapply(seq_along(list_maxc), function(k) {
+    current_mc <- list_maxc[[k]]
+    others <- unlist(list_maxc[-k])
+    setdiff(current_mc, others)
+  })
+  
+  # 3. Define Edge Constraints: Forbidden vs. Possible Edges
+  forbidden <- matrix(FALSE, nrow = n_total, ncol = n_total)
+  rownames(forbidden) <- colnames(forbidden) <- as.character(V_all)
+  
+  for (u in V_all) {
+    for (v in V_all) {
+      if (u == v) next
+      
+      for (k in 1:m) {
+        # Leakage Rule: if u is in MC_k but v is not, u -> v is forbidden.
+        if ((u %in% list_maxc[[k]]) && !(v %in% list_maxc[[k]])) {
+          forbidden[as.character(u), as.character(v)] <- TRUE
+        }
+        # Source Rule: v is a candidate source node, u is not in that source's SCC.
+        if ((v %in% S_candidates[[k]]) && !(u %in% S_candidates[[k]])) {
+          forbidden[as.character(u), as.character(v)] <- TRUE
+        }
+      }
+    }
+  }
+  
+  # 4. Generate Possible Edge List
+  all_pairs <- expand.grid(u = V_all, v = V_all)
+  all_pairs <- all_pairs[all_pairs$u != all_pairs$v, ]
+  
+  possible_edges <- all_pairs[
+  mapply(
+    function(u, v) !forbidden[as.character(u), as.character(v)],
+    all_pairs$u,
+    all_pairs$v
+  ),
+]
+
+  
+  # Safety Check to prevent crash
+  if (nrow(possible_edges) > 15) {
+    stop(paste("Too many possible edges (", nrow(possible_edges), 
+               "). Try a smaller graph or further pruning."))
+  }
+  
+  # 5. Combinatorial Search and Verification
+  # WARNING: Complexity is 2^|PossibleEdges|. Only suitable for small graphs.
+  n_edges <- nrow(possible_edges)
+  valid_graphs <- list()
+
+  # Iterate through all subsets of possible edges
+  for (i in 0:(2^n_edges - 1)) {
+    # Create bitmask for edge selection
+    bits <- as.logical(intToBits(i)[1:n_edges])
+    selected_edges <- possible_edges[bits, ]
+    
+    # Construct the candidate graph
+    if (nrow(selected_edges) == 0) {
+  g_test <- make_empty_graph(n = length(V_all), directed = TRUE)
+  V(g_test)$name <- as.character(V_all)
+} else {
+  g_test <- graph_from_edgelist(as.matrix(selected_edges), directed = TRUE)
+}
+    
+    # Ensure graph has all vertices
+    missing_v <- setdiff(V_all, V(g_test))
+    if(length(missing_v) > 0) g_test <- add_vertices(g_test, length(missing_v), name=as.character(missing_v))
+    
+    # --- Verification Step using your Algorithm 1 logic ---
+    # 1. Find SCCs
+    test_sccs <- KosarajuSCC(g_test)
+    
+    # 2. Condensed Graph
+    test_condensed <- CondensedGraph(g_test, test_sccs)
+
+    # 3. Get Maximal Classes (re-using your global variable logic)
+    n <<- vcount(test_condensed)
+    lbs <<- rep(0L, n)
+    maxc <<- matrix(0, n, n)
+    get_maximal_class(test_condensed)
+    test_maxc_list <- make_list_maxc(test_sccs, maxc, n)
+    
+    # Compare with input list_maxc (order-agnostic)
+    if (length(test_maxc_list) == length(list_maxc)) {
+      matches <- sapply(test_maxc_list, function(st) {
+  any(sapply(list_maxc, function(si) setequal(st, si)))
+})
+      
+      if (all(matches)) {
+        valid_graphs[[length(valid_graphs) + 1]] <- g_test
+      }
+    }
+  }
+  
+  return(valid_graphs)
+}
+```
+
+```{r}
+list_graph <- reconstruct_graphs(list_maxc)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
